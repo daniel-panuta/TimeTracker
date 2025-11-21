@@ -1,4 +1,5 @@
-import threading, time, signal, ctypes
+import threading, time, signal, ctypes, subprocess, sys, os
+from pathlib import Path
 from ctypes import wintypes
 import win32con, win32gui, win32api, win32ts
 from ..core import ensure_mode, ensure_rollover
@@ -43,8 +44,33 @@ def ctypes_kill_timer(hwnd, timer_id):
         return False
     return bool(_user32.KillTimer(hwnd, timer_id))
 
+
+def _launch_control_gui():
+    """Spawn the control GUI in a separate process (guard one at a time)."""
+    if getattr(_launch_control_gui, "_proc", None):
+        try:
+            if _launch_control_gui._proc.poll() is None:
+                logger.info("Control GUI already running (pid=%s)", _launch_control_gui._proc.pid)
+                return
+        except Exception:
+            pass
+    env = os.environ.copy()
+    try:
+        src_path = Path(__file__).resolve().parents[2]
+        env.setdefault("PYTHONPATH", str(src_path))
+    except Exception:
+        pass
+    try:
+        proc = subprocess.Popen([sys.executable, "-m", "timetracker", "control"], env=env)
+        _launch_control_gui._proc = proc
+        logger.info("Launched control GUI pid=%s", proc.pid)
+    except Exception:
+        logger.exception("Failed to launch control GUI process")
+
+
 class HiddenWindow:
     def __init__(self):
+        self.db_lock = threading.Lock()
         self.hinst = win32api.GetModuleHandle(None)
         wc = win32gui.WNDCLASS()
         wc.hInstance = self.hinst
@@ -85,9 +111,10 @@ class HiddenWindow:
                 self._timer_thread = threading.Thread(target=_timer_loop, daemon=True)
                 self._timer_thread.start()
 
-        self.con = connect()
-        ensure_rollover(self.con, logger)
-        ensure_mode(self.con, "active", logger)
+        self.con = connect(check_same_thread=False)
+        with self.db_lock:
+            ensure_rollover(self.con, logger)
+            ensure_mode(self.con, "active", logger)
         logger.info("Tracker started hwnd=%s", self.hwnd)
         # Start tray icon if available so user can see the app is running
         if start_tray:
@@ -99,7 +126,7 @@ class HiddenWindow:
                     except Exception:
                         logger.exception("Error posting WM_CLOSE from tray exit callback")
 
-                start_tray(str(ASSET_ICON), title="TimeTracker", on_exit=_exit_cb)
+                start_tray(str(ASSET_ICON), title="TimeTracker", on_exit=_exit_cb, on_control=_launch_control_gui)
                 logger.info("Tray icon started: %s", ASSET_ICON)
             except Exception:
                 logger.exception("Failed to start tray icon")
@@ -107,16 +134,20 @@ class HiddenWindow:
     def _wndproc(self, hWnd, msg, wParam, lParam):
         try:
             if msg == WM_WTSSESSION_CHANGE:
+                logger.info("WM_WTSSESSION_CHANGE received wParam=%s lParam=%s", wParam, lParam)
                 if wParam == WTS_SESSION_LOCK:
                     logger.info("Session lock detected")
-                    ensure_rollover(self.con, logger)
-                    ensure_mode(self.con, "pause", logger)
+                    with self.db_lock:
+                        ensure_rollover(self.con, logger)
+                        ensure_mode(self.con, "pause", logger)
                 elif wParam == WTS_SESSION_UNLOCK:
                     logger.info("Session unlock detected")
-                    ensure_rollover(self.con, logger)
-                    ensure_mode(self.con, "active", logger)
+                    with self.db_lock:
+                        ensure_rollover(self.con, logger)
+                        ensure_mode(self.con, "active", logger)
             elif msg == WM_TIMER and wParam == TIMER_ID:
-                ensure_rollover(self.con, logger)
+                with self.db_lock:
+                    ensure_rollover(self.con, logger)
             elif msg in (win32con.WM_CLOSE, win32con.WM_DESTROY):
                 self.cleanup()
         except Exception:
@@ -124,10 +155,14 @@ class HiddenWindow:
         return win32gui.DefWindowProc(hWnd, msg, wParam, lParam)
 
     def cleanup(self):
+        if getattr(self, "_cleaned", False):
+            return
+        self._cleaned = True
         logger.info("Cleanup: closing DB")
         try:
-            close_open_interval(self.con)
-            self.con.close()
+            with self.db_lock:
+                close_open_interval(self.con)
+                self.con.close()
             win32ts.WTSUnRegisterSessionNotification(self.hwnd)
         except Exception:
             logger.exception("Cleanup error")
@@ -171,34 +206,42 @@ class HiddenWindow:
             logger.exception("Error stopping timer")
 
 def run():
-    wnd = HiddenWindow()
+    """Start the tracker message loop on the SAME thread that owns the window."""
+    ready = threading.Event()
+    wnd_holder = {}
 
     def loop():
+        wnd = HiddenWindow()
+        wnd_holder["wnd"] = wnd
         try:
             # record the thread id so the main thread can post WM_QUIT to this message loop
             try:
                 wnd._msg_thread_id = win32api.GetCurrentThreadId()
             except Exception:
                 wnd._msg_thread_id = None
+            ready.set()
             win32gui.PumpMessages()
         finally:
             wnd.cleanup()
 
     t = threading.Thread(target=loop, daemon=True)
     t.start()
+    ready.wait(timeout=5.0)
 
     try:
         while t.is_alive():
             time.sleep(0.5)
     except KeyboardInterrupt:
         logger.info("Ctrl+C caught; closing...")
+        wnd = wnd_holder.get("wnd")
         try:
-            win32gui.PostMessage(wnd.hwnd, win32con.WM_CLOSE, 0, 0)
+            if wnd:
+                win32gui.PostMessage(wnd.hwnd, win32con.WM_CLOSE, 0, 0)
         except Exception:
             logger.exception("Error posting WM_CLOSE to window")
         # also post WM_QUIT to the message-loop thread if we recorded its id
         try:
-            if getattr(wnd, '_msg_thread_id', None):
+            if wnd and getattr(wnd, '_msg_thread_id', None):
                 win32api.PostThreadMessage(wnd._msg_thread_id, win32con.WM_QUIT, 0, 0)
         except Exception:
             logger.exception("Error posting WM_QUIT to message thread")

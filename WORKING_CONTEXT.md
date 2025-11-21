@@ -169,3 +169,10 @@ If you'd like, I can now:
 - Implement the lock-based approach across `src/timetracker/db.py`.
 
 Tell me which fix you prefer and I will implement it and run the verification steps.
+
+## Update 2025-11-21
+- Added: Control GUI (tkinter) with daily timer, Stop/Resume toggle, status badge, and icon from assets.
+- Tray icon shows active time today, menu “Open Control” (default double-click) and Exit; title/menu refresh every second.
+- Start now auto-launches Control GUI in a separate process with a single-instance guard.
+- Cleanup tightened: hidden window cleanup has `_cleaned` guard; `stop_tray` joins update threads.
+- Open bug: Control GUI sometimes does not open from tray even though launch is logged or considered already running. Needs investigation.

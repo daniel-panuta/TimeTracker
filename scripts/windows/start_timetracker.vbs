@@ -5,7 +5,7 @@
 Option Explicit
 
 Dim fso, shell, scriptFull, scriptDir, projectDir, tryDir
-Dim pyw, pyp, cmd, i, envProc
+Dim pyExe, venvScripts, cmd, i, envProc
 
 Set fso   = CreateObject("Scripting.FileSystemObject")
 Set shell = CreateObject("WScript.Shell")
@@ -31,26 +31,26 @@ If projectDir = "" Then
   WScript.Quit 1
 End If
 
-' Resolve Python executables from the venv
-pyw = fso.BuildPath(projectDir, "venv\Scripts\pythonw.exe")
-pyp = fso.BuildPath(projectDir, "venv\Scripts\python.exe")
+' Resolve Python executable from the venv
+venvScripts = fso.BuildPath(projectDir, "venv\Scripts")
+pyExe = fso.BuildPath(venvScripts, "python.exe")
 
-If fso.FileExists(pyw) Then
-  cmd = """" & pyw & """" & " -m timetracker start"
-ElseIf fso.FileExists(pyp) Then
-  cmd = """" & pyp & """" & " -m timetracker start"
-Else
-  MsgBox "Could not find venv\Scripts\python(w).exe in:" & vbCrLf & projectDir, _
+If Not fso.FileExists(pyExe) Then
+  MsgBox "Could not find venv\Scripts\python.exe in:" & vbCrLf & projectDir, _
          vbCritical, "TimeTracker"
   WScript.Quit 1
 End If
 
-' Ensure the module path resolves (src layout)
+' Mimic an activated venv: prepend venv\Scripts to PATH
 Set envProc = shell.Environment("PROCESS")
+envProc("PATH") = venvScripts & ";" & envProc("PATH")
+
+' Ensure the module path resolves (src layout)
 envProc("PYTHONPATH") = fso.BuildPath(projectDir, "src")
 
 ' Set working directory to the project root (important for DB/log files)
 shell.CurrentDirectory = projectDir
 
-' Run hidden, do not wait
+' Run hidden, do not wait (equivalent to: python -m timetracker start)
+cmd = "cmd /c ""python -m timetracker start"""
 shell.Run cmd, 0, False

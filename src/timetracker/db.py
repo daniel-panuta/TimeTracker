@@ -17,10 +17,10 @@ def _ensure_schema(con: sqlite3.Connection):
     con.commit()
 
 
-def connect(timeout: float = 5.0) -> sqlite3.Connection:
+def connect(timeout: float = 5.0, check_same_thread: bool = True) -> sqlite3.Connection:
     """Open (and initialize) the SQLite DB and return a connection."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(DB_PATH), timeout=timeout)
+    con = sqlite3.connect(str(DB_PATH), timeout=timeout, check_same_thread=check_same_thread)
     _ensure_schema(con)
     return con
 
@@ -52,13 +52,20 @@ def current_day(con: sqlite3.Connection):
     return row[0] if row else None
 
 
-def daily_totals(con: sqlite3.Connection, since: str):
+def daily_totals(con: sqlite3.Connection, since: str, now_ts: float | None = None):
+    """Return the active seconds per zi, incluzând intervalul activ deschis (end_ts NULL)."""
+    if now_ts is None:
+        now_ts = time.time()
     rows = con.execute("""
-        SELECT day, SUM(CASE WHEN kind='active' AND end_ts IS NOT NULL
-                    THEN end_ts - start_ts ELSE 0 END) AS active_sec
+        SELECT day,
+               SUM(CASE
+                       WHEN kind='active'
+                         THEN (COALESCE(end_ts, ?) - start_ts)
+                       ELSE 0
+                   END) AS active_sec
         FROM sessions
         WHERE day >= ?
         GROUP BY day
         ORDER BY day DESC
-    """, (since,)).fetchall()
+    """, (now_ts, since)).fetchall()
     return rows

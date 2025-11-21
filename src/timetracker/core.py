@@ -2,11 +2,17 @@ import time
 import datetime as dt
 from .db import current_mode, current_day, close_open_interval, start_interval
 
-def now(): return time.time()
-def today_str(): return dt.date.today().isoformat()
+
+def now():
+    return time.time()
+
+
+def today_str():
+    return dt.date.today().isoformat()
+
 
 def ensure_rollover(con, logger):
-    """Închide sesiunea curentă dacă s-a schimbat ziua."""
+    """AZnchide sesiunea curentă dacă s-a schimbat ziua."""
     mode = current_mode(con)
     last_day = current_day(con)
     if not mode:
@@ -14,9 +20,10 @@ def ensure_rollover(con, logger):
         start_interval(con, today_str(), now(), "active")
         return
     if last_day != today_str():
-        logger.info("Rollover detected: %s → %s", last_day, today_str())
+        logger.info("Rollover detected: %s -> %s", last_day, today_str())
         close_open_interval(con)
         start_interval(con, today_str(), now(), mode)
+
 
 def ensure_mode(con, desired, logger):
     """Comută între modurile active/pause dacă e nevoie."""

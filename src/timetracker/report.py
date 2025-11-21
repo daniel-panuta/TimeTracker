@@ -1,4 +1,5 @@
 import datetime as dt
+import time
 from .db import connect, daily_totals
 
 def fmt(sec):
@@ -10,7 +11,8 @@ def run(days=30):
     """Afișează raportul cu timpul activ din ultimele X zile."""
     since = (dt.date.today() - dt.timedelta(days=days-1)).isoformat()
     con = connect()
-    rows = daily_totals(con, since)
+    now_ts = time.time()
+    rows = daily_totals(con, since, now_ts=now_ts)
     con.close()
 
     if not rows:
