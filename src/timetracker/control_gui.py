@@ -116,16 +116,43 @@ class ControlApp:
         )
         self.status_badge.pack(side=tk.RIGHT)
 
-        self.status_var = tk.StringVar()
-        self.status_label = tk.Label(
-            container,
-            textvariable=self.status_var,
+        self.status_time_var = tk.StringVar()
+        status_row = tk.Frame(container, bg="#0f172a", pady=8)
+        status_row.pack(fill=tk.X)
+        status_inner = tk.Frame(status_row, bg="#0f172a")
+        status_inner.pack(anchor="center")
+        tk.Label(
+            status_inner,
+            text="Active today:",
             font=("Segoe UI", 20, "bold"),
             fg="#e5e7eb",
             bg="#0f172a",
-            pady=12,
+        ).pack(side=tk.LEFT)
+        self.status_time_label = tk.Label(
+            status_inner,
+            textvariable=self.status_time_var,
+            font=("Segoe UI", 20, "bold"),
+            fg="#e5e7eb",
+            bg="#0f172a",
+            padx=8,
         )
-        self.status_label.pack(fill=tk.X)
+        self.status_time_label.pack(side=tk.LEFT)
+        self.reminder_var = tk.StringVar()
+        self.reminder_frame = tk.Frame(container, bg="#0f172a")
+        self.reminder_inner = tk.Frame(self.reminder_frame, bg="#0f172a")
+        self.reminder_inner.pack(anchor="center")
+        self.reminder_label = tk.Label(
+            self.reminder_inner,
+            textvariable=self.reminder_var,
+            font=("Segoe UI", 10),
+            fg="#0a0a0a",
+            bg="#ffffff",
+            padx=14,
+            pady=8,
+            bd=1,
+            relief="solid",
+        )
+        self.reminder_label.pack(side=tk.LEFT)
         self.mode_var = tk.StringVar()
         self.mode_label = tk.Label(
             container,
@@ -203,12 +230,17 @@ class ControlApp:
             ensure_rollover(self.con, self.logger)
             secs = self._active_today_sec()
             mode = current_mode(self.con) or "none"
-            # Highlight daily time in red if over 7 hours
+            # Highlight only the time in red if over 7 hours
+            self.status_time_var.set(_fmt(secs))
+            self.status_time_label.configure(fg="#ef4444" if secs > 7 * 3600 else "#e5e7eb")
             if secs > 7 * 3600:
-                self.status_label.configure(fg="#ef4444")
+                self.reminder_var.set("🙂 Friendly reminder: take a short break and relax.")
+                if not self.reminder_frame.winfo_ismapped():
+                    self.reminder_frame.pack(fill=tk.X, pady=(2, 6), before=self.mode_label)
             else:
-                self.status_label.configure(fg="#e5e7eb")
-            self.status_var.set(f"Active today: {_fmt(secs)}")
+                self.reminder_var.set("")
+                if self.reminder_frame.winfo_ismapped():
+                    self.reminder_frame.pack_forget()
             self.mode_var.set(f"Status: {mode}")
             self._apply_mode_style(mode)
             self._update_dashboard()
