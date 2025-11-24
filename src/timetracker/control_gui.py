@@ -234,7 +234,7 @@ class ControlApp:
             self.status_time_var.set(_fmt(secs))
             self.status_time_label.configure(fg="#ef4444" if secs > 7 * 3600 else "#e5e7eb")
             if secs > 7 * 3600:
-                self.reminder_var.set("🙂 Friendly reminder: take a short break and relax.")
+                self.reminder_var.set("🙂 Take a short break and relax.")
                 if not self.reminder_frame.winfo_ismapped():
                     self.reminder_frame.pack(fill=tk.X, pady=(2, 6), before=self.mode_label)
             else:
